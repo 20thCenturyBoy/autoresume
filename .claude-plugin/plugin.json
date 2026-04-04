@@ -1,0 +1,9 @@
+{
+  "name": "auto-resume",
+  "version": "1.0.0",
+  "description": "Wraps Claude Code in a terminal proxy that detects rate limits, waits for reset with a live countdown, and auto-injects a resume prompt. Zero tokens used during detection or wait.",
+  "author": "",
+  "license": "MIT",
+  "homepage": "",
+  "skills": ["skills/autoresume"]
+}

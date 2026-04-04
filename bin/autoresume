@@ -1,0 +1,507 @@
+#!/usr/bin/env python3
+"""
+autoresume — Terminal wrapper for Claude Code.
+
+Launches Claude in a pseudo-terminal, monitors output for rate limits,
+waits for reset, and injects a resume prompt. Zero tokens used during
+detection and wait — pure local I/O.
+
+Usage:
+    autoresume [claude args...]
+
+Examples:
+    autoresume claude
+    autoresume claude "refactor auth"
+    autoresume claude --dangerously-skip-approval
+"""
+
+import asyncio
+import os
+import signal
+import subprocess
+import sys
+import termios
+import time
+import tty
+from datetime import datetime, timezone
+from http.client import HTTPSConnection
+from select import select
+
+# ─── Configuration ───────────────────────────────────────────────────────────
+
+RATE_LIMIT_PATTERNS = [
+    b"429",
+    b"rate limit",
+    b"rate_limited",
+    b"too many requests",
+    b"ratelimiterror",
+]
+
+RESUME_PROMPT = (
+    "Please continue exactly where you left off. "
+    "Do not summarize or repeat what was already done — just resume the task."
+)
+
+POLL_INTERVAL = 5
+DEFAULT_WAIT = 60
+MAX_RETRIES = 10
+BUFFER_SIZE = 4096
+
+# ─── Rate Limit Checker (separate process, independent of Claude) ────────────
+
+
+def check_rate_limit():
+    """Poll Anthropic API. Returns (limited, retry_after_seconds, reset_time_str).
+
+    Token cost: ZERO when rate limited (429 response, no completion).
+                1 token when clear (200 response, but max_tokens=1 on a '.' message).
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return False, 0, ""
+
+    try:
+        conn = HTTPSConnection("api.anthropic.com", timeout=10)
+        body = (
+            b'{"model":"claude-sonnet-4-20250514","max_tokens":1,'
+            b'"messages":[{"role":"user","content":"."}]}'
+        )
+        conn.request(
+            "POST",
+            "/v1/messages",
+            body=body,
+            headers={
+                b"x-api-key": api_key.encode(),
+                b"anthropic-version": b"2023-06-01",
+                b"content-type": b"application/json",
+            },
+        )
+        resp = conn.getresponse()
+        status = resp.status
+
+        retry_after = 0
+        raw = resp.getheader("retry-after")
+        if raw:
+            try:
+                retry_after = int(raw)
+            except ValueError:
+                pass
+
+        if status == 429:
+            reset_at = ""
+            if retry_after > 0:
+                ts = datetime.now(timezone.utc).timestamp() + retry_after
+                reset_at = datetime.fromtimestamp(ts).strftime("%H:%M:%S")
+            return True, retry_after if retry_after > 0 else DEFAULT_WAIT, reset_at
+
+        return False, 0, ""
+
+    except Exception:
+        return False, 0, ""
+
+
+# ─── Output Scanner (local string matching, zero tokens) ─────────────────────
+
+
+class OutputScanner:
+    """Scans Claude's output chunks for rate limit patterns.
+
+    Maintains a rolling buffer of the last 2KB to catch patterns
+    that span multiple read() calls.
+    """
+
+    def __init__(self):
+        self.buffer = b""
+        self.triggered = False
+
+    def feed(self, data: bytes) -> bool:
+        if self.triggered:
+            return False
+
+        self.buffer += data
+        if len(self.buffer) > 2048:
+            self.buffer = self.buffer[-2048:]
+
+        lowered = self.buffer.lower()
+        if any(p in lowered for p in RATE_LIMIT_PATTERNS):
+            self.triggered = True
+            return True
+
+        return False
+
+
+# ─── Status Display (writes directly to terminal, zero tokens) ───────────────
+
+
+def clear_line():
+    """Erase current line and move cursor to start."""
+    sys.stdout.write("\r\033[K")
+    sys.stdout.flush()
+
+
+def show_rate_limit_banner(wait_str: str, reset_at: str):
+    clear_line()
+    print()
+    print("━" * 60)
+    print(f"⚠️  RATE LIMIT HIT")
+    print(f"   Waiting: {wait_str} (resets at {reset_at})")
+    print(f"   🔄 Will auto-resume with:")
+    print(f'      "{RESUME_PROMPT}"')
+    print("━" * 60)
+    print()
+
+
+def show_countdown(progress_pct: float, remaining_seconds: int):
+    """Live progress bar. Overwrites the same line each update."""
+    bar_width = 30
+    filled = int(bar_width * progress_pct / 100)
+    bar = "█" * filled + "░" * (bar_width - filled)
+
+    m, s = divmod(remaining_seconds, 60)
+    label = f"{m}m {s}s" if m else f"{s}s"
+
+    sys.stdout.write(f"\r⏳ [{bar}] {progress_pct:.0f}% ({label} remaining)  ")
+    sys.stdout.flush()
+
+
+def show_reset_clear():
+    clear_line()
+    print()
+    print("━" * 60)
+    print("✅ RATE LIMIT RESET — Resuming session now")
+    print("━" * 60)
+    print()
+
+
+def show_still_limited(extra_wait: int):
+    clear_line()
+    m, s = divmod(extra_wait, 60)
+    print(f"   Still limited. Waiting another {m}m {s}s...")
+
+
+def show_max_retries(attempts: int):
+    clear_line()
+    print()
+    print("━" * 60)
+    print(f"❌ Rate limit persisted after {attempts} auto-resume attempts")
+    print(f"   Please wait a few minutes and try again manually.")
+    print("━" * 60)
+    print()
+
+
+def show_help():
+    print("   [Press Ctrl+C to cancel auto-resume and return to manual control]", flush=True)
+
+
+# ─── Countdown Wait (local time arithmetic + sleep, zero tokens) ─────────────
+
+
+async def wait_for_reset(total_seconds: int):
+    """Show a live countdown. Uses only time.monotonic() + sleep. Zero tokens."""
+    start = time.monotonic()
+    while True:
+        elapsed = time.monotonic() - start
+        remaining = max(0, int(total_seconds - elapsed))
+        if remaining <= 0:
+            break
+        pct = int(((total_seconds - remaining) / total_seconds) * 100)
+        show_countdown(pct, remaining)
+        await asyncio.sleep(min(POLL_INTERVAL, 1))
+    show_countdown(100, 0)
+
+
+def inject_resume_prompt(fd: int):
+    """Write the resume prompt to Claude's pty fd.
+
+    Token cost: NONE — this is a local file descriptor write, identical to
+    the user typing keystrokes.
+    """
+    prompt = RESUME_PROMPT + "\r"
+    os.write(fd, prompt.encode())
+
+
+# ─── Unix: Pty-based Relay (primary implementation) ─────────────────────────
+
+
+def run_unix(cmd: list):
+    """Launch Claude in a pty, relay I/O, detect rate limits, auto-resume.
+
+    Token budget for the entire rate-limit cycle:
+      - Detection:     0 (local string matching on output)
+      - API poll:      0 (429 response, no completion generated)
+      - Countdown:     0 (local time + sleep)
+      - Reset confirm: 0 (still 429) or 1 (cleared, user would use anyway)
+      - Resume inject: 0 (local fd write)
+      - Claude resume: normal user tokens (rate limit cleared, so it works)
+    """
+    import pty
+
+    # Save terminal settings so we can restore on exit
+    try:
+        old_tcattr = termios.tcgetattr(sys.stdin)
+    except termios.error:
+        old_tcattr = None
+
+    child_pid, master_fd = pty.fork()
+
+    if child_pid == 0:
+        # Child process: exec Claude with real TTY
+        env = os.environ.copy()
+        env["FORCE_COLOR"] = "1"
+        os.execvpe(cmd[0], cmd, env)
+        # NOTREACHED
+
+    # Parent process: relay + monitor
+    # Set user's terminal to raw mode so we get every keystroke immediately
+    if old_tcattr is not None:
+        tty.setraw(sys.stdin)
+
+    scanner = OutputScanner()
+    rate_limited = False
+    resume_pending = False
+    attempts = 0
+
+    def cleanup(signum=None, frame=None):
+        """Restore terminal and kill child on exit."""
+        if old_tcattr is not None:
+            try:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_tcattr)
+            except termios.error:
+                pass
+        try:
+            os.kill(child_pid, signal.SIGTERM)
+        except OSError:
+            pass
+        clear_line()
+        sys.exit(128 + (signum or 0))
+
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
+
+    async def main_loop():
+        nonlocal rate_limited, resume_pending, attempts
+        loop = asyncio.get_event_loop()
+
+        while True:
+            # If we need to inject a resume prompt, do it now
+            if resume_pending:
+                resume_pending = False
+                inject_resume_prompt(master_fd)
+                rate_limited = False
+                # Small delay so the pty processes the write
+                await asyncio.sleep(0.2)
+                continue
+
+            # Wait for I/O on either stdin or the pty
+            try:
+                readable, _, _ = await loop.run_in_executor(
+                    None, lambda: select([sys.stdin, master_fd], [], [], 0.1)
+                )
+            except (OSError, ValueError):
+                break  # terminal closed
+
+            # Forward user keystrokes to Claude
+            if sys.stdin in readable:
+                try:
+                    data = os.read(sys.stdin, 1024)
+                except OSError:
+                    break
+                if not data:
+                    break  # EOF on stdin
+                os.write(master_fd, data)
+
+            # Read Claude's output and scan it
+            if master_fd in readable:
+                try:
+                    data = os.read(master_fd, BUFFER_SIZE)
+                except OSError:
+                    break
+                if not data:
+                    break  # child exited
+
+                # Write to user's terminal
+                os.write(sys.stdout, data)
+
+                # Scan for rate limit (zero tokens — local string match)
+                if not rate_limited and scanner.feed(data):
+                    rate_limited = True
+                    await handle_rate_limit(master_fd)
+
+        # Child exited — clean up
+        try:
+            _, status = os.waitpid(child_pid, 0)
+        except OSError:
+            pass
+        if old_tcattr is not None:
+            try:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_tcattr)
+            except termios.error:
+                pass
+        sys.exit(os.waitstatus_to_exitcode(status) if os.WIFEXITED(status) else 1)
+
+    async def handle_rate_limit(fd: int):
+        nonlocal attempts
+
+        # Step 5: Poll API for exact reset time (0 tokens on 429)
+        limited, retry_after, reset_at = check_rate_limit()
+
+        if not limited:
+            # False positive — output matched but not actually rate limited
+            return
+
+        m, s = divmod(retry_after, 60)
+        wait_str = f"{m}m {s}s" if m else f"{s}s"
+
+        # Show status (local output, zero tokens)
+        show_rate_limit_banner(wait_str, reset_at)
+        show_help()
+
+        # Step 6: Countdown (zero tokens — local time + sleep)
+        await wait_for_reset(retry_after)
+
+        # Step 7: Confirm reset (0 tokens on 429, 1 token on 200)
+        await asyncio.sleep(0)  # yield to event loop
+        still_limited, extra_wait, _ = check_rate_limit()
+
+        if still_limited:
+            attempts += 1
+            if attempts >= MAX_RETRIES:
+                show_max_retries(attempts)
+                # Give control back — don't inject, let user decide
+                return
+            show_still_limited(extra_wait)
+            await wait_for_reset(extra_wait)
+
+        # Step 8: Inject resume prompt (zero tokens — local fd write)
+        show_reset_clear()
+        attempts = 0
+        nonlocal resume_pending
+        resume_pending = True
+
+    asyncio.run(main_loop())
+
+
+# ─── Windows: Subprocess-based Relay (fallback) ─────────────────────────────
+
+
+def run_windows(cmd: list):
+    """Windows fallback: subprocess with pipes.
+
+    Note: Some CLIs detect pipes and behave differently. If Claude refuses
+    to run interactively this way, use WSL or a terminal emulator like
+    Windows Terminal with the Linux subsystem.
+    """
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=0,
+    )
+
+    scanner = OutputScanner()
+    rate_limited = False
+
+    def cleanup(signum=None, frame=None):
+        proc.terminate()
+        sys.exit(128 + (signum or 0))
+
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
+
+    async def main_loop():
+        nonlocal rate_limited
+        loop = asyncio.get_event_loop()
+
+        # Read stdout in a thread
+        import threading
+
+        output_queue = asyncio.Queue()
+        stdin_pipe = []  # mutable holder for stdin writes
+
+        def reader_thread():
+            while True:
+                chunk = proc.stdout.read(BUFFER_SIZE)
+                if not chunk:
+                    output_queue.put_nowait(None)  # sentinel
+                    break
+                output_queue.put_nowait(chunk)
+
+        reader = threading.Thread(target=reader_thread, daemon=True)
+        reader.start()
+
+        while True:
+            chunk = await output_queue.get()
+            if chunk is None:
+                break  # child exited
+
+            # Forward to user's terminal
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+
+            # Scan for rate limit (zero tokens)
+            if not rate_limited and scanner.feed(chunk):
+                rate_limited = True
+                await handle_rate_limit(proc.stdin)
+
+        proc.wait()
+        sys.exit(proc.returncode)
+
+    async def handle_rate_limit(stdin):
+        limited, retry_after, reset_at = check_rate_limit()
+        if not limited:
+            return
+
+        m, s = divmod(retry_after, 60)
+        wait_str = f"{m}m {s}s" if m else f"{s}s"
+
+        show_rate_limit_banner(wait_str, reset_at)
+        show_help()
+
+        await wait_for_reset(retry_after)
+
+        still_limited, extra_wait, _ = check_rate_limit()
+        if still_limited:
+            show_still_limited(extra_wait)
+            await wait_for_reset(extra_wait)
+
+        show_reset_clear()
+
+        # Inject resume prompt via stdin pipe (zero tokens)
+        stdin.write((RESUME_PROMPT + "\r\n").encode())
+        stdin.flush()
+
+    asyncio.run(main_loop())
+
+
+# ─── Entry Point ─────────────────────────────────────────────────────────────
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: autoresume [claude args...]")
+        print()
+        print("Examples:")
+        print("  autoresume claude")
+        print('  autoresume claude "refactor auth"')
+        print("  autoresume claude --dangerously-skip-approval")
+        sys.exit(1)
+
+    cmd = sys.argv[1:]
+
+    # Resolve `claude` to full path if possible
+    if cmd[0] == "claude":
+        for path in os.environ.get("PATH", "").split(os.pathsep):
+            candidate = os.path.join(path, "claude")
+            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                cmd[0] = candidate
+                break
+
+    if os.name == "nt":
+        run_windows(cmd)
+    else:
+        run_unix(cmd)
+
+
+if __name__ == "__main__":
+    main()
