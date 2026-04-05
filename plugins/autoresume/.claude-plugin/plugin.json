@@ -1,0 +1,8 @@
+{
+  "name": "auto-resume",
+  "version": "1.0.0",
+  "description": "Terminal wrapper that detects API rate limits, shows a live countdown, and auto-injects a resume prompt. Zero tokens used during detection or wait.",
+  "license": "MIT",
+  "homepage": "https://github.com/20thCenturyBoy/autoresume",
+  "skills": ["skills/autoresume"]
+}

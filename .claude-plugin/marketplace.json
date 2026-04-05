@@ -1,0 +1,13 @@
+{
+  "name": "20thCenturyBoy",
+  "owner": {
+    "name": "20thCenturyBoy",
+    "url": "https://github.com/20thCenturyBoy"
+  },
+  "plugins": [
+    {
+      "name": "autoresume",
+      "source": "./plugins/autoresume"
+    }
+  ]
+}

@@ -4,16 +4,19 @@ Terminal wrapper that automatically resumes [Claude Code](https://claude.ai/code
 
 ## Install
 
+From inside any Claude Code session:
+
+```
+/plugin marketplace add 20thCenturyBoy/autoresume
+/plugin install autoresume@20thCenturyBoy
+```
+
+Or manually:
+
 ```bash
 git clone https://github.com/20thCenturyBoy/autoresume.git
-cd autoresume
+cd autoresume/plugins/autoresume
 python install.py
-```
-
-Or install directly from Claude Code:
-
-```
-/plugin add 20thCenturyBoy/autoresume
 ```
 
 ## Use
@@ -81,14 +84,14 @@ python plugin.py --check
 
 ## Uninstall
 
+```
+/plugin uninstall autoresume@20thCenturyBoy
+```
+
+Or manually:
+
 ```bash
 python install.py --uninstall
-```
-
-Or from Claude Code:
-
-```
-/plugin remove autoresume
 ```
 
 ## Requirements

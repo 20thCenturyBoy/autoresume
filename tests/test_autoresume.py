@@ -17,6 +17,7 @@ from unittest.mock import patch, MagicMock
 # ── Load modules by file path (bin/autoresume has no .py extension) ──────────
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
+PLUGIN = os.path.join(ROOT, "plugins", "autoresume")
 
 
 def load(path):
@@ -29,9 +30,9 @@ def load(path):
     return mod
 
 
-wrapper = load(os.path.join(ROOT, "bin", "autoresume"))
-plugin = load(os.path.join(ROOT, "plugin.py"))
-installer = load(os.path.join(ROOT, "install.py"))
+wrapper = load(os.path.join(PLUGIN, "bin", "autoresume"))
+plugin = load(os.path.join(PLUGIN, "plugin.py"))
+installer = load(os.path.join(PLUGIN, "install.py"))
 
 
 # ═══════════════════════════════════════════════════════════
@@ -213,25 +214,33 @@ class TestIntegration(unittest.TestCase):
         wrapper.show_max_retries(10)
 
     def test_files_exist(self):
-        self.assertTrue(os.path.isfile(os.path.join(ROOT, "bin", "autoresume")))
-        self.assertTrue(os.path.isfile(os.path.join(ROOT, "plugin.py")))
-        self.assertTrue(os.path.isfile(os.path.join(ROOT, "install.py")))
-        self.assertTrue(os.path.isfile(os.path.join(ROOT, ".claude-plugin", "plugin.json")))
-        self.assertTrue(os.path.isfile(os.path.join(ROOT, ".mcp.json")))
-        self.assertTrue(os.path.isfile(os.path.join(ROOT, "skills", "autoresume", "SKILL.md")))
+        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "bin", "autoresume")))
+        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "plugin.py")))
+        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "install.py")))
+        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")))
+        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, ".mcp.json")))
+        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "skills", "autoresume", "SKILL.md")))
         self.assertTrue(os.path.isfile(os.path.join(ROOT, "README.md")))
+        self.assertTrue(os.path.isfile(os.path.join(ROOT, ".claude-plugin", "marketplace.json")))
 
     def test_plugin_json_valid(self):
-        with open(os.path.join(ROOT, ".claude-plugin", "plugin.json")) as f:
+        with open(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")) as f:
             d = json.load(f)
         self.assertEqual(d["name"], "auto-resume")
         self.assertIn("skills", d)
 
     def test_mcp_json_valid(self):
-        with open(os.path.join(ROOT, ".mcp.json")) as f:
+        with open(os.path.join(PLUGIN, ".mcp.json")) as f:
             d = json.load(f)
         self.assertIn("mcpServers", d)
         self.assertIn("auto-resume", d["mcpServers"])
+
+    def test_marketplace_json_valid(self):
+        with open(os.path.join(ROOT, ".claude-plugin", "marketplace.json")) as f:
+            d = json.load(f)
+        self.assertEqual(d["name"], "20thCenturyBoy")
+        self.assertIn("plugins", d)
+        self.assertEqual(d["plugins"][0]["name"], "autoresume")
 
 
 if __name__ == "__main__":
