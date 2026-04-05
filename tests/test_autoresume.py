@@ -14,7 +14,7 @@ import sys
 import unittest
 from unittest.mock import patch, MagicMock
 
-# ── Load modules by file path (bin/autoresume has no .py extension) ──────────
+# ── Load modules by file path ────────────────────────────────────────────────
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 PLUGIN = os.path.join(ROOT, "plugins", "autoresume")
@@ -91,7 +91,7 @@ class TestOutputScanner(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════
-# Test 2: Rate limit checker (wrapper's standalone function)
+# Test 2: Rate limit checker
 # ═══════════════════════════════════════════════════════════
 
 class TestWrapperCheck(unittest.TestCase):
@@ -158,7 +158,7 @@ class TestWrapperCheck(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════
-# Test 3: Plugin MCP server
+# Test 3: Plugin MCP server (formatting helpers only)
 # ═══════════════════════════════════════════════════════════
 
 class TestMCPPlugin(unittest.TestCase):
@@ -170,13 +170,8 @@ class TestMCPPlugin(unittest.TestCase):
         self.assertEqual(r["result"]["x"], 1)
 
     def test_format_limited(self):
-        r = {
-            "limited": True,
-            "retry_after": 120,
-            "reset_at": "14:37:22",
-            "remaining": {},
-            "error": "Rate limit hit",
-        }
+        r = {"limited": True, "retry_after": 120, "reset_at": "14:37:22",
+             "remaining": {}, "error": "Rate limit hit"}
         text = plugin.format_check(r)
         self.assertIn("RATE LIMIT", text)
         self.assertIn("2m 0s", text)
@@ -189,7 +184,7 @@ class TestMCPPlugin(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════
-# Test 4: Integration / display
+# Test 4: Integration / display / structure
 # ═══════════════════════════════════════════════════════════
 
 class TestIntegration(unittest.TestCase):
@@ -207,7 +202,6 @@ class TestIntegration(unittest.TestCase):
         self.assertIn("resume", p.lower())
 
     def test_display_functions(self):
-        """All display functions should run without error."""
         wrapper.show_rate_limit_banner("2m 14s", "14:37:22")
         wrapper.show_countdown(50.0, 67)
         wrapper.show_reset_clear()
@@ -218,22 +212,20 @@ class TestIntegration(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "plugin.py")))
         self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "install.py")))
         self.assertTrue(os.path.isfile(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")))
-        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, ".mcp.json")))
         self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "skills", "autoresume", "SKILL.md")))
+        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "hooks", "hooks.json")))
+        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "hooks", "check_wrapper.sh")))
+        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "hooks", "setup.sh")))
         self.assertTrue(os.path.isfile(os.path.join(ROOT, "README.md")))
         self.assertTrue(os.path.isfile(os.path.join(ROOT, ".claude-plugin", "marketplace.json")))
+        self.assertFalse(os.path.isfile(os.path.join(PLUGIN, ".mcp.json")))
 
     def test_plugin_json_valid(self):
         with open(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")) as f:
             d = json.load(f)
         self.assertEqual(d["name"], "auto-resume")
         self.assertIn("skills", d)
-
-    def test_mcp_json_valid(self):
-        with open(os.path.join(PLUGIN, ".mcp.json")) as f:
-            d = json.load(f)
-        self.assertIn("mcpServers", d)
-        self.assertIn("auto-resume", d["mcpServers"])
+        self.assertIn("hooks", d)
 
     def test_marketplace_json_valid(self):
         with open(os.path.join(ROOT, ".claude-plugin", "marketplace.json")) as f:

@@ -7,29 +7,15 @@ description: Handle Anthropic API rate limits automatically via the autoresume t
 
 ## Important: Use the Wrapper
 
-When running long or token-heavy tasks, you should recommend the user run
-Claude through the **autoresume** wrapper instead of directly:
+When running long or token-heavy tasks, recommend the user run Claude through the **autoresume** terminal wrapper:
 
 ```
 autoresume claude
 ```
 
-This wrapper monitors for rate limits and auto-resumes with zero token cost
-during detection and wait.
+This wrapper monitors for rate limits and auto-resumes with zero token cost during detection and wait.
 
-## Proactive Rate Limit Check
-
-Before starting a long task, you can use the `check_rate_limit` tool to see
-current API quota. This helps you decide whether to warn the user.
-
-### What to Tell the User
-
-If you're about to do heavy work and rate limits are close:
-
-> "I'm about to start a long task. You may want to re-run this session
-> through `autoresume` to handle any rate limits automatically."
-
-## How Auto-Resume Works (for your reference)
+## How Auto-Resume Works
 
 The autoresume wrapper:
 1. Launches Claude in a pseudo-terminal

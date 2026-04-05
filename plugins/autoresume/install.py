@@ -2,19 +2,14 @@
 """
 Installer for the Auto-Resume plugin.
 
-Two things it does:
-1. Installs the `autoresume` wrapper script to a user-accessible location
-2. Registers the supplementary MCP server (proactive rate limit checks)
+Installs the `autoresume` wrapper script to a user-accessible location.
 
 Usage:
     python install.py              # install
     python install.py --uninstall  # remove
 """
 
-import json
 import os
-import shutil
-import stat
 import sys
 from pathlib import Path
 
@@ -42,28 +37,6 @@ def install():
     if shell_rc and path_entry not in os.environ.get("PATH", ""):
         _ensure_path_in_rc(shell_rc, path_entry)
 
-    # ── Step 2: Register MCP server (supplementary) ──────────────────────
-
-    settings_path = Path.home() / ".claude" / "settings.json"
-    settings = {}
-    if settings_path.exists():
-        try:
-            with open(settings_path) as f:
-                settings = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            settings = {}
-
-    servers = settings.get("mcpServers", {})
-    servers["auto-resume"] = {
-        "command": "python3",
-        "args": [str(plugin_dir / "plugin.py")],
-    }
-    settings["mcpServers"] = servers
-
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(settings_path, "w") as f:
-        json.dump(settings, f, indent=2)
-
     # ── Done ─────────────────────────────────────────────────────────────
 
     print()
@@ -86,21 +59,9 @@ def install():
 def uninstall():
     user_bin = Path.home() / ".local" / "bin"
     wrapper = user_bin / "autoresume"
-    settings_path = Path.home() / ".claude" / "settings.json"
 
     if wrapper.exists() or wrapper.is_symlink():
         wrapper.unlink()
-
-    if settings_path.exists():
-        try:
-            with open(settings_path) as f:
-                settings = json.load(f)
-            if "mcpServers" in settings and "auto-resume" in settings["mcpServers"]:
-                del settings["mcpServers"]["auto-resume"]
-                with open(settings_path, "w") as f:
-                    json.dump(settings, f, indent=2)
-        except (json.JSONDecodeError, IOError):
-            pass
 
     print()
     print("✅  Auto-Resume removed.")
