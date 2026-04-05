@@ -223,7 +223,7 @@ class TestIntegration(unittest.TestCase):
     def test_plugin_json_valid(self):
         with open(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")) as f:
             d = json.load(f)
-        self.assertEqual(d["name"], "auto-resume")
+        self.assertEqual(d["name"], "autoresume")
         self.assertIn("skills", d)
         # hooks/hooks.json is loaded automatically — no manifest reference needed
         self.assertNotIn("hooks", d)
