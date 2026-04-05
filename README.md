@@ -5,7 +5,7 @@ Terminal wrapper that automatically resumes [Claude Code](https://claude.ai/code
 ## Install
 
 ```bash
-git clone https://github.com/<owner>/autoresume.git
+git clone https://github.com/20thCenturyBoy/autoresume.git
 cd autoresume
 python install.py
 ```
@@ -13,7 +13,7 @@ python install.py
 Or install directly from Claude Code:
 
 ```
-/plugin add <owner>/autoresume
+/plugin add 20thCenturyBoy/autoresume
 ```
 
 ## Use
