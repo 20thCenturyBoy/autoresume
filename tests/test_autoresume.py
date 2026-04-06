@@ -32,7 +32,6 @@ def load(path):
 
 wrapper = load(os.path.join(PLUGIN, "bin", "autoresume"))
 plugin = load(os.path.join(PLUGIN, "plugin.py"))
-installer = load(os.path.join(PLUGIN, "install.py"))
 
 
 # ═══════════════════════════════════════════════════════════
@@ -210,23 +209,16 @@ class TestIntegration(unittest.TestCase):
     def test_files_exist(self):
         self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "bin", "autoresume")))
         self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "plugin.py")))
-        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "install.py")))
         self.assertTrue(os.path.isfile(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")))
         self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "skills", "autoresume", "SKILL.md")))
-        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "hooks", "hooks.json")))
-        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "hooks", "check_wrapper.sh")))
-        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "hooks", "setup.sh")))
         self.assertTrue(os.path.isfile(os.path.join(ROOT, "README.md")))
         self.assertTrue(os.path.isfile(os.path.join(ROOT, ".claude-plugin", "marketplace.json")))
-        self.assertFalse(os.path.isfile(os.path.join(PLUGIN, ".mcp.json")))
 
     def test_plugin_json_valid(self):
         with open(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")) as f:
             d = json.load(f)
         self.assertEqual(d["name"], "autoresume")
         self.assertIn("skills", d)
-        # hooks/hooks.json is loaded automatically — no manifest reference needed
-        self.assertNotIn("hooks", d)
 
     def test_marketplace_json_valid(self):
         with open(os.path.join(ROOT, ".claude-plugin", "marketplace.json")) as f:
@@ -235,52 +227,13 @@ class TestIntegration(unittest.TestCase):
         self.assertIn("plugins", d)
         self.assertEqual(d["plugins"][0]["name"], "autoresume")
 
-
-# ═══════════════════════════════════════════════════════════
-# Test 5: Hook auto-install script
-# ═══════════════════════════════════════════════════════════
-
-class TestHookScript(unittest.TestCase):
-
-    HOOK_SCRIPT = os.path.join(PLUGIN, "hooks", "check_wrapper.sh")
-
-    def test_hook_is_executable(self):
-        self.assertTrue(os.access(self.HOOK_SCRIPT, os.X_OK))
-
-    def test_hook_has_autoinstall_logic(self):
-        """Script should attempt ln -sf for auto-install."""
-        with open(self.HOOK_SCRIPT) as f:
+    def test_readme_has_install_command(self):
+        """README should prominently feature the curl install one-liner."""
+        with open(os.path.join(ROOT, "README.md")) as f:
             content = f.read()
-        self.assertIn("ln -sf", content)
-        self.assertIn("_show_manual", content)
-
-    def test_hook_checks_for_existing_command(self):
-        """Script should check if autoresume is already in PATH."""
-        with open(self.HOOK_SCRIPT) as f:
-            content = f.read()
-        self.assertIn("command -v autoresume", content)
-
-    def test_hook_handles_missing_source(self):
-        """Script should check if source wrapper binary exists."""
-        with open(self.HOOK_SCRIPT) as f:
-            content = f.read()
-        self.assertIn("WRAPPER_BIN", content)
-        self.assertIn("corrupted", content)
-
-    def test_hook_uses_claude_env_file(self):
-        """Script should write to CLAUDE_ENV_FILE if available."""
-        with open(self.HOOK_SCRIPT) as f:
-            content = f.read()
-        self.assertIn("CLAUDE_ENV_FILE", content)
-
-    def test_setup_script_is_executable(self):
-        setup = os.path.join(PLUGIN, "hooks", "setup.sh")
-        self.assertTrue(os.access(setup, os.X_OK))
-
-    def test_hook_exit_zero(self):
-        """Hook should always exit 0 (never block session start)."""
-        result = os.system(f'bash -n "{self.HOOK_SCRIPT}"')
-        self.assertEqual(result, 0)  # syntax check passes
+        self.assertIn("curl", content)
+        self.assertIn("install.py", content)
+        self.assertIn("python3", content)
 
 
 if __name__ == "__main__":

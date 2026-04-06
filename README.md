@@ -1,27 +1,29 @@
 # autoresume
 
-Terminal wrapper that automatically resumes [Claude Code](https://claude.ai/code) sessions when API rate limits are hit. Zero configuration. Zero tokens wasted during detection or wait.
+Terminal wrapper that automatically resumes [Claude Code](https://claude.ai/code) sessions when API rate limits are hit. Zero tokens wasted during detection or wait.
 
 ## Install
 
-From inside any Claude Code session:
+**One command in your terminal:**
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/20thCenturyBoy/autoresume/main/plugins/autoresume/install.py | python3 -
+```
+
+That's it. The `autoresume` command is now available.
+
+**Alternatively, from Claude Code:**
 
 ```
 /plugin marketplace add 20thCenturyBoy/autoresume
 /plugin install autoresume@20thCenturyBoy
 ```
 
-Or manually:
-
-```bash
-git clone https://github.com/20thCenturyBoy/autoresume.git
-cd autoresume/plugins/autoresume
-python install.py
-```
+Then run the one-liner above to install the wrapper.
 
 ## Use
 
-Instead of running `claude`, run `autoresume claude`:
+Instead of `claude`, run `autoresume claude`:
 
 ```bash
 autoresume claude
@@ -29,7 +31,7 @@ autoresume claude "refactor the auth module"
 autoresume claude --dangerously-skip-approval
 ```
 
-That's it. Works exactly like `claude` — but when a rate limit hits, it handles it automatically.
+Works exactly like `claude` — but when a rate limit hits, it handles it automatically.
 
 ## What You See
 
@@ -84,14 +86,13 @@ python plugin.py --check
 
 ## Uninstall
 
-```
-/plugin uninstall autoresume@20thCenturyBoy
-```
-
-Or manually:
-
 ```bash
-python install.py --uninstall
+python3 -c "
+from pathlib import Path
+w = Path.home() / '.local/bin/autoresume'
+if w.is_symlink() or w.exists(): w.unlink()
+print('✅ Removed')
+"
 ```
 
 ## Requirements
