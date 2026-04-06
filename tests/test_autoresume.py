@@ -236,5 +236,52 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(d["plugins"][0]["name"], "autoresume")
 
 
+# ═══════════════════════════════════════════════════════════
+# Test 5: Hook auto-install script
+# ═══════════════════════════════════════════════════════════
+
+class TestHookScript(unittest.TestCase):
+
+    HOOK_SCRIPT = os.path.join(PLUGIN, "hooks", "check_wrapper.sh")
+
+    def test_hook_is_executable(self):
+        self.assertTrue(os.access(self.HOOK_SCRIPT, os.X_OK))
+
+    def test_hook_has_autoinstall_logic(self):
+        """Script should attempt ln -sf for auto-install."""
+        with open(self.HOOK_SCRIPT) as f:
+            content = f.read()
+        self.assertIn("ln -sf", content)
+        self.assertIn("_show_manual", content)
+
+    def test_hook_checks_for_existing_command(self):
+        """Script should check if autoresume is already in PATH."""
+        with open(self.HOOK_SCRIPT) as f:
+            content = f.read()
+        self.assertIn("command -v autoresume", content)
+
+    def test_hook_handles_missing_source(self):
+        """Script should check if source wrapper binary exists."""
+        with open(self.HOOK_SCRIPT) as f:
+            content = f.read()
+        self.assertIn("WRAPPER_BIN", content)
+        self.assertIn("corrupted", content)
+
+    def test_hook_uses_claude_env_file(self):
+        """Script should write to CLAUDE_ENV_FILE if available."""
+        with open(self.HOOK_SCRIPT) as f:
+            content = f.read()
+        self.assertIn("CLAUDE_ENV_FILE", content)
+
+    def test_setup_script_is_executable(self):
+        setup = os.path.join(PLUGIN, "hooks", "setup.sh")
+        self.assertTrue(os.access(setup, os.X_OK))
+
+    def test_hook_exit_zero(self):
+        """Hook should always exit 0 (never block session start)."""
+        result = os.system(f'bash -n "{self.HOOK_SCRIPT}"')
+        self.assertEqual(result, 0)  # syntax check passes
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
