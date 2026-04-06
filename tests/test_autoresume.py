@@ -3,21 +3,18 @@
 Tests for the autoresume wrapper.
 
 Runs with: python3 tests/test_autoresume.py
-No external dependencies — uses only stdlib (unittest, unittest.mock).
+No external dependencies — stdlib only.
 """
 
 import importlib.machinery
 import importlib.util
-import json
 import os
 import sys
 import unittest
 from unittest.mock import patch, MagicMock
 
-# ── Load modules by file path ────────────────────────────────────────────────
-
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-PLUGIN = os.path.join(ROOT, "plugins", "autoresume")
+BIN = os.path.join(ROOT, "bin", "autoresume")
 
 
 def load(path):
@@ -30,8 +27,7 @@ def load(path):
     return mod
 
 
-wrapper = load(os.path.join(PLUGIN, "bin", "autoresume"))
-plugin = load(os.path.join(PLUGIN, "plugin.py"))
+wrapper = load(BIN)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -105,13 +101,11 @@ class TestWrapperCheck(unittest.TestCase):
         mock_resp.status = 429
         mock_resp.getheader.side_effect = lambda h, d="": {
             "retry-after": "134",
-            "anthropic-ratelimit-tokens-remaining": "0",
         }.get(h, d)
 
-        mock_conn = MagicMock()
-        mock_conn.return_value.getresponse.return_value = mock_resp
-
-        with patch.object(wrapper, "HTTPSConnection", mock_conn):
+        with patch.object(wrapper, "HTTPSConnection", return_value=MagicMock(
+            getresponse=MagicMock(return_value=mock_resp)
+        )):
             with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
                 limited, retry_after, reset_at = wrapper.check_rate_limit()
 
@@ -124,10 +118,9 @@ class TestWrapperCheck(unittest.TestCase):
         mock_resp.status = 200
         mock_resp.getheader.side_effect = lambda h, d="": d
 
-        mock_conn = MagicMock()
-        mock_conn.return_value.getresponse.return_value = mock_resp
-
-        with patch.object(wrapper, "HTTPSConnection", mock_conn):
+        with patch.object(wrapper, "HTTPSConnection", return_value=MagicMock(
+            getresponse=MagicMock(return_value=mock_resp)
+        )):
             with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
                 limited, retry_after, _ = wrapper.check_rate_limit()
 
@@ -145,10 +138,9 @@ class TestWrapperCheck(unittest.TestCase):
         mock_resp.status = 429
         mock_resp.getheader.side_effect = lambda h, d="": d
 
-        mock_conn = MagicMock()
-        mock_conn.return_value.getresponse.return_value = mock_resp
-
-        with patch.object(wrapper, "HTTPSConnection", mock_conn):
+        with patch.object(wrapper, "HTTPSConnection", return_value=MagicMock(
+            getresponse=MagicMock(return_value=mock_resp)
+        )):
             with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
                 limited, retry_after, _ = wrapper.check_rate_limit()
 
@@ -157,33 +149,7 @@ class TestWrapperCheck(unittest.TestCase):
 
 
 # ═══════════════════════════════════════════════════════════
-# Test 3: Plugin MCP server (formatting helpers only)
-# ═══════════════════════════════════════════════════════════
-
-class TestMCPPlugin(unittest.TestCase):
-
-    def test_ok_helper(self):
-        r = plugin.ok(42, {"x": 1})
-        self.assertEqual(r["jsonrpc"], "2.0")
-        self.assertEqual(r["id"], 42)
-        self.assertEqual(r["result"]["x"], 1)
-
-    def test_format_limited(self):
-        r = {"limited": True, "retry_after": 120, "reset_at": "14:37:22",
-             "remaining": {}, "error": "Rate limit hit"}
-        text = plugin.format_check(r)
-        self.assertIn("RATE LIMIT", text)
-        self.assertIn("2m 0s", text)
-
-    def test_format_clear(self):
-        r = {"limited": False, "retry_after": 0, "reset_at": "",
-             "remaining": {}, "error": ""}
-        text = plugin.format_check(r)
-        self.assertIn("clear", text.lower())
-
-
-# ═══════════════════════════════════════════════════════════
-# Test 4: Integration / display / structure
+# Test 3: Integration / structure
 # ═══════════════════════════════════════════════════════════
 
 class TestIntegration(unittest.TestCase):
@@ -207,33 +173,15 @@ class TestIntegration(unittest.TestCase):
         wrapper.show_max_retries(10)
 
     def test_files_exist(self):
-        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "bin", "autoresume")))
-        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "plugin.py")))
-        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")))
-        self.assertTrue(os.path.isfile(os.path.join(PLUGIN, "skills", "autoresume", "SKILL.md")))
+        self.assertTrue(os.path.isfile(os.path.join(ROOT, "bin", "autoresume")))
+        self.assertTrue(os.path.isfile(os.path.join(ROOT, "install.py")))
         self.assertTrue(os.path.isfile(os.path.join(ROOT, "README.md")))
-        self.assertTrue(os.path.isfile(os.path.join(ROOT, ".claude-plugin", "marketplace.json")))
-
-    def test_plugin_json_valid(self):
-        with open(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")) as f:
-            d = json.load(f)
-        self.assertEqual(d["name"], "autoresume")
-        self.assertIn("skills", d)
-
-    def test_marketplace_json_valid(self):
-        with open(os.path.join(ROOT, ".claude-plugin", "marketplace.json")) as f:
-            d = json.load(f)
-        self.assertEqual(d["name"], "20thCenturyBoy")
-        self.assertIn("plugins", d)
-        self.assertEqual(d["plugins"][0]["name"], "autoresume")
 
     def test_readme_has_install_command(self):
-        """README should prominently feature the curl install one-liner."""
         with open(os.path.join(ROOT, "README.md")) as f:
             content = f.read()
         self.assertIn("curl", content)
         self.assertIn("install.py", content)
-        self.assertIn("python3", content)
 
 
 if __name__ == "__main__":

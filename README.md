@@ -4,22 +4,9 @@ Terminal wrapper that automatically resumes [Claude Code](https://claude.ai/code
 
 ## Install
 
-**One command in your terminal:**
-
 ```bash
 curl -sSfL https://raw.githubusercontent.com/20thCenturyBoy/autoresume/main/plugins/autoresume/install.py | python3 -
 ```
-
-That's it. The `autoresume` command is now available.
-
-**Alternatively, from Claude Code:**
-
-```
-/plugin marketplace add 20thCenturyBoy/autoresume
-/plugin install autoresume@20thCenturyBoy
-```
-
-Then run the one-liner above to install the wrapper.
 
 ## Use
 
@@ -60,14 +47,7 @@ Claude then continues exactly where it stopped. No context lost.
 
 ## How It Works
 
-```
-User ──keystrokes──▶ [autoresume wrapper] ──stdin──▶ Claude
-                       (monitors output)
-User ◀──terminal─── [autoresume wrapper] ◀──stdout── Claude
-                       (scans for 429/rate limit)
-```
-
-1. **Launches Claude** in a pseudo-terminal (so Claude runs normally)
+1. **Launches Claude** in a pseudo-terminal
 2. **Relays I/O** bidirectionally between user and Claude
 3. **Scans output** for rate limit patterns (429, "rate limit", etc.) — **0 tokens**
 4. **Polls API** for exact reset time via `retry-after` header — **0 tokens** (429 response)
@@ -78,26 +58,14 @@ User ◀──terminal─── [autoresume wrapper] ◀──stdout── Claud
 
 **Total overhead during rate limit: 0–1 tokens.**
 
-## Standalone Rate Limit Check
-
-```bash
-python plugin.py --check
-```
-
 ## Uninstall
 
 ```bash
-python3 -c "
-from pathlib import Path
-w = Path.home() / '.local/bin/autoresume'
-if w.is_symlink() or w.exists(): w.unlink()
-print('✅ Removed')
-"
+rm -f ~/.local/bin/autoresume
 ```
 
 ## Requirements
 
 - Python 3.7+ (stdlib only, no pip install)
-- Mac / Linux (uses `pty` for terminal emulation)
-- Windows: works via subprocess pipes (some CLI differences possible)
+- Mac / Linux
 - `ANTHROPIC_API_KEY` in environment (already required for Claude Code)
