@@ -5,7 +5,7 @@ Terminal wrapper that automatically resumes [Claude Code](https://claude.ai/code
 ## Install
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/20thCenturyBoy/autoresume/main/plugins/autoresume/install.py | python3 -
+curl -sSfL https://raw.githubusercontent.com/20thCenturyBoy/autoresume/main/install.py | python3 -
 ```
 
 ## Use
