@@ -7,40 +7,42 @@ Install:
 """
 
 import os
-import subprocess
-import tempfile
+import ssl
+import sys
 from pathlib import Path
+from urllib.request import urlopen, Request
+
+WRAPPER_URL = "https://raw.githubusercontent.com/20thCenturyBoy/autoresume/main/bin/autoresume"
 
 
 def install():
-    # Clone repo to temp dir
-    with tempfile.TemporaryDirectory() as tmpdir:
-        subprocess.run(
-            ["git", "clone", "--depth", "1",
-             "https://github.com/20thCenturyBoy/autoresume.git", tmpdir],
-            capture_output=True, check=True
-        )
-        wrapper_src = Path(tmpdir) / "bin" / "autoresume"
-
-    if not wrapper_src.exists():
-        print("❌  Wrapper not found in repo.")
-        return
-
     user_bin = Path.home() / ".local" / "bin"
     user_bin.mkdir(parents=True, exist_ok=True)
 
-    link = user_bin / "autoresume"
-    if link.is_symlink() or link.exists():
-        link.unlink()
+    dest = user_bin / "autoresume"
 
-    # Copy (not symlink) so it works independently of the repo
-    import shutil
-    shutil.copy2(wrapper_src, link)
-    os.chmod(link, 0o755)
+    # Download wrapper
+    print("Downloading autoresume...")
+    try:
+        resp = urlopen(Request(WRAPPER_URL), timeout=15)
+        content = resp.read()
+    except Exception as e:
+        print(f"❌  Failed to download: {e}")
+        print("    Try: git clone https://github.com/20thCenturyBoy/autoresume.git")
+        return
+
+    if resp.status != 200:
+        print(f"❌  Download failed (HTTP {resp.status})")
+        return
+
+    # Write
+    if dest.is_symlink() or dest.exists():
+        dest.unlink()
+    dest.write_bytes(content)
+    os.chmod(dest, 0o755)
 
     # Persist to shell rc
     path_entry = str(user_bin.resolve())
-    shell = os.environ.get("SHELL", "")
     for rc_name in (".zshrc", ".bashrc", ".bash_profile"):
         rc = Path.home() / rc_name
         if rc.exists() and path_entry not in rc.read_text():
@@ -48,7 +50,7 @@ def install():
                 f.write(f'\nexport PATH="{path_entry}:$PATH"\n')
 
     print()
-    print("✅  autoresume installed to", link)
+    print("✅  autoresume installed to", dest)
     print("    Run: autoresume claude")
 
 
